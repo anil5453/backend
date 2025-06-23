@@ -1,60 +1,82 @@
 const express = require('express');
 const cors = require('cors');
+const bodyParser = require('body-parser');
+const dotenv = require('dotenv');
 const twilio = require('twilio');
 
+// ✅ Load environment variables before anything else
+dotenv.config();
+
 const app = express();
+const port = process.env.PORT || 5000;
+
+// ✅ Middleware
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-//  Twilio Sandbox credentials (Don't use in production)
- const accountSid = 'AC15fd4a9ed904d4cad4163d975d04cc93';
- const authToken = '592429c09a3007e2512b27a39501df3f';
-const fromWhatsAppNumber = 'whatsapp:+14155238886'; // Twilio sandbox FROM number
+// ✅ Twilio client using correct env keys
+const client = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
 
-const client = twilio(accountSid, authToken);
-
+// ✅ POST route
 app.post('/api/book-appointment', async (req, res) => {
-  const { patientName, patientPhone, doctorPhone, appointmentDate, symptoms } = req.body;
+  const {
+    patientName,
+    patientPhone,
+    doctorName,
+    doctorPhone,
+    appointmentDate,
+    appointmentTime
+  } = req.body;
 
-  if (!patientName || !patientPhone || !doctorPhone || !appointmentDate || !symptoms) {
-    return res.status(400).json({ message: 'All fields are required.' });
+  if (
+    !patientName ||
+    !patientPhone ||
+    !doctorName ||
+    !doctorPhone ||
+    !appointmentDate ||
+    !appointmentTime
+  ) {
+    return res.status(400).json({ message: 'Missing required fields' });
   }
 
-  if (!patientPhone.startsWith('+91') || !doctorPhone.startsWith('+91')) {
-    return res.status(400).json({ message: 'Phone numbers must start with +91' });
-  }
-
-  const fullDate = appointmentDate;
-  const messageText = `📅 Appointment Confirmation\n\n👤 Patient: ${patientName}\n📆 Date: ${fullDate}\n💬 Symptoms: ${symptoms}`;
+  const patientMsg = `Hi ${patientName}, your appointment with Dr. ${doctorName} is confirmed for ${appointmentDate} at ${appointmentTime}.`;
+  const doctorMsg = `Dr. ${doctorName}, you have a new appointment with ${patientName} on ${appointmentDate} at ${appointmentTime}.`;
 
   try {
-    // Send to Patient
-    const patientRes = await client.messages.create({
-      from: fromWhatsAppNumber,
+    // Send WhatsApp message to patient
+    await client.messages.create({
+      from: process.env.TWILIO_PHONE_NUMBER,
       to: `whatsapp:${patientPhone}`,
-      body: `Hello ${patientName}, your appointment is booked.\n\n${messageText}`
+      body: patientMsg
     });
 
-    // Send to Doctor
-    const doctorRes = await client.messages.create({
-      from: fromWhatsAppNumber,
+    // Send WhatsApp message to doctor
+    await client.messages.create({
+      from: process.env.TWILIO_PHONE_NUMBER,
       to: `whatsapp:${doctorPhone}`,
-      body: `New appointment scheduled:\n\n${messageText}`
+      body: doctorMsg
     });
 
-    console.log('✅ WhatsApp Sent:', patientRes.sid, doctorRes.sid);
-    res.status(200).json({ message: '✅ WhatsApp messages sent to patient and doctor.' });
-
+    res.status(200).json({
+      message: 'Appointment booked and messages sent successfully.'
+    });
   } catch (error) {
-    console.error('❌ Twilio Error:', error);
+    console.error('Error sending messages:', error.message);
     res.status(500).json({
-      message: '❌ Could not send messages.',
-      error: error.message,
-      code: error.code,
-      moreInfo: error.moreInfo
+      message: 'Failed to send WhatsApp messages',
+      error: error.message
     });
   }
 });
 
-const PORT = 5000;
-app.listen(PORT, () => console.log(`🚀 Backend running on http://localhost:${PORT}`));
+// ✅ Basic server check route
+app.get('/', (req, res) => {
+  res.send('Doctor Appointment API is running...');
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
